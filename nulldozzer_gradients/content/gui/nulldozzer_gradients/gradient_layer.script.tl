@@ -1,12 +1,9 @@
-local app_util = ug_require "::/scripts/app_util.tl" as AppUtil
 local react = ug_require "::/gui/main/react.lua" as React
 local builtin = ug_require "::/gui/main/builtin.lua" as Builtin
 local engine_react_util = ug_require "::/gui/main/engine_react_util.tl" as EngineReactUtil
-local game_react_globals = ug_require "::/gui/main/game_react_globals.tl" as GameReactGlobals
 local layer_react_util = ug_require "::/gui/layers/layer_react_util.tl" as LayerReactUtil
-local main_mod_button_area = ug_require "::/gui/main/main_mod_button_area.tl" as MainModButtonArea
-local selector_react_util = ug_require "::/gui/main/selector_react_util.tl" as SelectorReactUtil
-local tool_react_util = ug_require "::/gui/main/tool_react_util.tl" as ToolReactUtil
+local table_util = ug_require "::/scripts/table_util.tl" as TableUtil
+local TerrainLayer = ug_require "::/gui/layers/layer_terrain.tl" as Recipe<LayersButtonRidge.LayerContentParam>
 
 local gradient_scale = ug_require "nulldozzer_gradients::/gui/nulldozzer_gradients/gradient_scale.tl" as NullDozzerGradientScale
 local gradient_tooltip = ug_require "nulldozzer_gradients::/gui/nulldozzer_gradients/gradient_tooltip.tl" as NullDozzerGradientTooltip
@@ -15,12 +12,6 @@ local point_grid = ug_require "nulldozzer_gradients::/gui/nulldozzer_gradients/p
 
 local type Piece = NullDozzerNetworkScan.Piece
 local type Strip = Builtin.Type.EdgeRenderable.Edge
-
-local TOOL_NAME <const> = "NullDozzerGradients"
-local ACTION_TOOL <const> = "nulldozzer_gradients"
-local WINDOW_ID <const> = "nullDozzerGradientsWindow"
-local BUTTON_ID <const> = "nulldozzer_gradients.button"
-local BUTTON_ICON <const> = "::/gui/construction/build_control/symbol_slope_2_20.tga"
 
 local STRIP_OPACITY <const> = 0.6
 local STRIP_OFFSET_Z <const> = 0.3
@@ -32,8 +23,6 @@ local STRIP_WIDTH : {NullDozzerNetworkScan.Kind : number} = {
 
 local GRID_CELL_SIZE <const> = 20.0
 local LEGEND_LEVELS_PER_STEP <const> = 4
-
-local layerColors = api.gui.genericRep.get(api.gui.genericRep.find("::/gui/layers/layer_colors.gres")).data as LayerColors
 
 local record LayerState
 	piecesByEntity : {Engine.Entity : Piece}
@@ -108,14 +97,6 @@ local function buildLayerState() : LayerState
 	return state
 end
 
-local function makeGreyMapConfig() : LayerConfig
-	local colorPassFn = api.type.LayerConfig.ColorPassFn.new()
-	colorPassFn.fallbackColor = layer_react_util.createDefaultFallbackColor(layerColors.Infrastructure.Fallback.Surface, layerColors.Infrastructure.Fallback.Details)
-	local layerConfig = api.type.LayerConfig.new()
-	layerConfig.colorPassFn = colorPassFn
-	return layerConfig
-end
-
 local function ColorBar(scale : NullDozzerGradientScale.Scale) : TreeNodeId
 	local colors : {Vec4f} = {}
 	for _, gradient in ipairs(scale.legendGradients) do
@@ -155,93 +136,129 @@ local function Subtitle(text : string) : TreeNodeId
 	return builtin.TextView{ meta = { class = "font-scale-title-4, layer-subtitle" }, text = text }
 end
 
-local function LayerAction(state : LayerState, hoveredRef : ReactRefT<Engine.Entity>, detail : boolean) : TreeNodeId
-	return builtin.ActionDescriptor{
-		tool = ACTION_TOOL,
-		terrainCirclePolicy = app_util.getMouseOrGamepad("Never", "FocusSelection"),
-		crosshair = app_util.getMouseOrGamepad(false, true),
-		children = {
-			builtin.LayerConfig{ config = makeGreyMapConfig() },
-			-- Only one EdgeRenderable is allowed per ActionDescriptor, so swap the list.
-			builtin.EdgeRenderable{ edges = detail and state.detailStrips or state.segmentStrips, ignoreDepth = true },
-			selector_react_util.makeDefaultSelector(game_react_globals.getDefaultRendererComponent(), hoveredRef, true, nil, true),
-			builtin.ActionTooltip{
-				recipe = gradient_tooltip.Tooltip,
-				param = { hoveredRef = hoveredRef, grid = state.grid, pieces = state.piecesByEntity },
-			},
-		},
-	}
+local record CombinedTooltipParam
+	terrainRecipe : Recipe<GameTooltips.TerrainTooltipParam>
+	terrainParam : GameTooltips.TerrainTooltipParam
+	gradientParam : NullDozzerGradientTooltip.Param
 end
 
-local LayerContent = react.RegisterRecipe("NullDozzerGradientsContent", function(payload : ToolReactUtil.ToolWindowParamPayload<ToolReactUtil.IToolParam>) : TreeNodeId
+-- The terrain layer's height tooltip, with the gradient below it while the mouse is on a track or road.
+local CombinedTooltip = react.RegisterRecipe("NullDozzerTerrainGradientTooltip", function(param : CombinedTooltipParam) : TreeNodeId
+	react.setMouseTransparent(true)
+	return builtin.BoxLayout{
+		orientation = builtin.type.Orientation.Vertical,
+		children = {
+			param.terrainRecipe(param.terrainParam),
+			gradient_tooltip.Tooltip(param.gradientParam),
+		},
+	}
+end)
+
+-- Wraps the terrain layer's action so it also draws the gradient strips. The terrain
+-- layer builds its action as one opaque node, so while its action function runs,
+-- builtin.ActionDescriptor and builtin.ActionTooltip are swapped for versions that
+-- add the strips and the gradient tooltip, and restored afterwards.
+local function withGradients(terrainActionFn : (function() : TreeNodeId), state : LayerState, detail : boolean) : function() : TreeNodeId
+	return function() : TreeNodeId
+		local patchable = builtin as {string : any}
+		local originalDescriptor = builtin.ActionDescriptor
+		local originalTooltip = builtin.ActionTooltip
+		local extended = false
+
+		patchable.ActionDescriptor = function(param : Builtin.ActionDescriptorParam) : TreeNodeId
+			if extended then
+				return originalDescriptor(param)
+			end
+			extended = true
+			local children : {TreeNodeId} = {}
+			for i, child in ipairs(param.children or {}) do
+				children[i] = child
+			end
+			-- Only one EdgeRenderable is allowed per ActionDescriptor, so swap the list.
+			children[#children + 1] = builtin.EdgeRenderable{ edges = detail and state.detailStrips or state.segmentStrips, ignoreDepth = true }
+			param.children = children
+			return originalDescriptor(param)
+		end
+
+		patchable.ActionTooltip = function(param : Builtin.ActionTooltipParam<GameTooltips.TerrainTooltipParam>) : TreeNodeId
+			local hoveredRef = param.param and param.param.entityRef
+			if hoveredRef == nil then
+				return originalTooltip(param)
+			end
+			return originalTooltip{
+				recipe = CombinedTooltip,
+				param = {
+					terrainRecipe = param.recipe,
+					terrainParam = param.param,
+					gradientParam = { hoveredRef = hoveredRef, grid = state.grid, pieces = state.piecesByEntity },
+				},
+			}
+		end
+
+		local ok, result = pcall(terrainActionFn)
+		patchable.ActionDescriptor = originalDescriptor
+		patchable.ActionTooltip = originalTooltip
+		if not ok then
+			error(result, 0)
+		end
+		if not extended then
+			log.warning("nulldozzer_gradients: could not extend the terrain layer action, gradients are not shown")
+		end
+		return result as TreeNodeId
+	end
+end
+
+local GradientLegend = react.RegisterRecipe("NullDozzerGradientLegend", function() : TreeNodeId
+	return builtin.BoxLayout{
+		orientation = builtin.type.Orientation.Vertical,
+		children = {
+			Subtitle("Track gradient"),
+			Legend("track"),
+			Subtitle("Road gradient"),
+			Legend("road"),
+			builtin.TextView{ text = "Colours show each segment's average.\nHold Shift to see the gradient every 4 m." },
+		},
+	}
+end)
+
+-- Stands in for the base game's Terrain data layer: the original layer, plus the
+-- gradient strips on the map and their legend below the terrain legend.
+local TerrainLayerWithGradients = react.RegisterRecipe("NullDozzerTerrainLayerWithGradients", function(param : LayersButtonRidge.LayerContentParam) : TreeNodeId
 	local stateRef : ReactRefT<LayerState> = react.useRef()
 	if stateRef:get() == nil then
 		stateRef:set(buildLayerState())
 	end
-	local hoveredRef : ReactRefT<Engine.Entity> = react.useRef(-1)
 	local detailState = engine_react_util.useStepState(gradient_tooltip.isDetailHeld)
 	local detail = detailState:old() == true
 
-	payload.setActionFn(function() : TreeNodeId
-		return LayerAction(stateRef:get(), hoveredRef, detail)
-	end)
+	-- The terrain layer sets its action while it renders. Keep the latest one, so a
+	-- change of detail re-wraps it even when the terrain layer does not re-render.
+	local terrainActionRef : ReactRefT<(function() : TreeNodeId)> = react.useRef()
+	local terrainActionKeyRef : ReactRefT<string> = react.useRef()
+	if terrainActionRef:get() ~= nil then
+		param.setActionFn(withGradients(terrainActionRef:get(), stateRef:get(), detail), terrainActionKeyRef:get())
+	end
+
+	local terrainParam = table_util.copy(param)
+	terrainParam.setActionFn = function(actionFn : (function() : TreeNodeId), key? : string)
+		terrainActionRef:set(actionFn)
+		terrainActionKeyRef:set(key)
+		param.setActionFn(withGradients(actionFn, stateRef:get(), detail), key)
+	end
 
 	return builtin.BoxLayout{
+		orientation = builtin.type.Orientation.Vertical,
 		children = {
-			layer_react_util.LayerLegendWrapper{
-				content = builtin.BoxLayout{
-					orientation = builtin.type.Orientation.Vertical,
-					children = {
-						Subtitle("Track gradient"),
-						Legend("track"),
-						Subtitle("Road gradient"),
-						Legend("road"),
-						builtin.TextView{ text = "Colours show each segment's average.\nHold Shift to see the gradient every 4 m." },
-					},
-				},
-			},
+			react.CallOriginalRecipe(TerrainLayer, terrainParam),
+			layer_react_util.LayerLegendWrapper{ content = GradientLegend() },
 		},
 	}
 end)
 
-local LayerWindow = react.RegisterWrapperRecipe("NullDozzerGradientsWindow", builtin.Window, function(params : ToolReactUtil.IToolWindowParam<ToolReactUtil.IToolParam>) : TreeNodeId
-	return builtin.Window{
-		title = "Gradient Data Layer",
-		closable = true,
-		onClose = params.onClose,
-		content = LayerContent(params.payload),
-		id = WINDOW_ID,
-	}
-end)
-
-local LayerTool = tool_react_util.registerToolWithWindow(TOOL_NAME, WINDOW_ID, LayerWindow)
-
-local function defaultGameContext() : GameContext
-	return {
-		windowContainer = game_react_globals.getDefaultWindowContainer(),
-		toolStack = game_react_globals.getDefaultToolStack(),
-	} as GameContext
+local function replaceTerrainLayer(replacementApi : ReactReplacementApi)
+	replacementApi.ReplaceRecipe(TerrainLayer, TerrainLayerWithGradients)
 end
 
-local LayerButton = react.RegisterPluginRecipe(main_mod_button_area.MainModButtonAreaExtension, "NullDozzerGradientsButton", function() : TreeNodeId
-	return builtin.BoxLayout{
-		children = {
-			builtin.ToolButton{
-				meta = { id = BUTTON_ID, tooltip = "Gradient Data Layer" },
-				toolDefinition = LayerTool,
-				toolStack = game_react_globals.getDefaultToolStack(),
-				content = builtin.ImageView{ path = BUTTON_ICON, scaling = builtin.type.ImageViewScaling.AutoFit },
-				showFn = function()
-					game_react_globals.getDefaultToolStackApi().push(LayerTool, nil, { gameCtx = defaultGameContext() })
-				end,
-				hideFn = function()
-					game_react_globals.getDefaultToolStackApi().pop(LayerTool, nil)
-				end,
-			},
-		},
-	}
-end)
-
 return {
-	GradientLayerButton = LayerButton,
+	replaceTerrainLayer = replaceTerrainLayer,
 }

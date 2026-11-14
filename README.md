@@ -7,7 +7,7 @@ Planned:
 - A gradient data layer for tracks.
 - The steepest gradient of a line, shown in the line info.
 
-**Status:** prototype. A button next to the Data Layers button greys out the map, colors every track and road segment by its steepest gradient (green → yellow → red → black; tracks up to 9%, roads up to 20%), and shows gradients in a tooltip.
+**Status:** prototype. The game's Terrain data layer also colors every track and road segment by its steepest gradient (green → yellow → red → black; tracks up to 9%, roads up to 20%), and shows gradients in a tooltip.
 
 ## Repository layout
 
@@ -16,9 +16,9 @@ nulldozzer_gradients/       The mod itself (this folder is what the game loads)
   mod.json                   Technical definition: mod id, revision, scripts
   _metadata/modinfo.json     Name, description, tags shown in the Mod Hub
   content/gui/nulldozzer_gradients/
-    gradient_layer.res.lua   Registers the button in the game's mod button area
-    gradient_layer.script.tl Button, tool window, legend and coloring
-    gradient_layer.css.lua   Window position
+    terrain_layer_replacement.res.lua  Swaps the game's Terrain data layer for ours
+    gradient_layer.script.tl Terrain layer wrapper, legend and coloring
+    gradient_layer.css.lua   Legend layout
     gradient_tooltip.tl      Hover tooltip
     network_scan.tl          Finds track and road segments
     edge_profile.tl          Measures gradients along a segment
@@ -40,7 +40,7 @@ New-Item -ItemType Junction `
   -Target "<path-to-this-repo>\nulldozzer_gradients"
 ```
 
-Then start the game and enable **Gradient Data Layer** in the mod selection when starting or loading a game. Its button appears to the right of the Data Layers button.
+Then start the game and enable **Gradient Data Layer** in the mod selection when starting or loading a game. Open **Data Layers → Terrain** to see the gradients.
 
 After editing scripts, exit to the main menu and load the save again. Edits to already loaded GUI scripts also apply with <kbd>AltGr</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd> (debug mode); new files need the reload. The game log is `userdata/<steam-id>/3493540/local/crash_dump/stdout.txt`.
 
