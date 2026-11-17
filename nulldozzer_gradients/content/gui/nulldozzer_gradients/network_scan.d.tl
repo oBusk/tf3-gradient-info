@@ -20,5 +20,6 @@ global record NullDozzerNetworkScan
 		lanes : {EdgeGeometry}
 	end
 
-	scanAll : function() : {Piece}
+	--- Every track or road segment on the map whose kind is in kinds.
+	scanAll : function(kinds : {Kind : boolean}) : {Piece}
 end

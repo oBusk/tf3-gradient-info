@@ -4,7 +4,7 @@ A [Transport Fever 3](https://transportfever3.com) mod that adds a data layer co
 
 **Status:** prototype.
 
-- **Terrain data layer:** also colors every track and road segment by its average gradient (green → yellow → red → black; tracks up to 9%, roads up to 20%; hold Shift for every 4 m), and shows gradients in a tooltip.
+- **Terrain data layer:** also colors track segments, or tracks and roads, chosen in a dropdown, by their average gradient (green → yellow → red → black; tracks up to 9%, roads up to 20%; hold Shift for every 4 m), and shows gradients in a tooltip.
 - **Line window:** a Gradient card for rail lines with the steepest climb over the shortest platform's length, and the vehicle store Performance rating a train needs to hold full speed on it.
 - **Train window:** a Gradient card with the steepest climb on the train's line over the train's length, and the speed this train holds there fully loaded.
 - **Line manager:** for rail lines, a row below the line's statistics with the steepest climb and the Performance rating it needs.

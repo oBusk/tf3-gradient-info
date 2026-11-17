@@ -69,11 +69,12 @@ local record ScanTiming
 	profiles : number
 end
 
-local function scanPiece(entity : Engine.Entity, timing : ScanTiming) : NullDozzerNetworkScan.Piece
+local function scanPiece(entity : Engine.Entity, kinds : {NullDozzerNetworkScan.Kind : boolean}, timing : ScanTiming) : NullDozzerNetworkScan.Piece
 	local componentClock = api.type.Clock.new()
 	local baseEdge = api.engine.getComponent(entity, api.type.ComponentType.BASE_EDGE) as Engine.Component.BaseEdge
 	local kind = baseEdge and kindOf(baseEdge)
-	if kind == nil then
+	if kind == nil or not kinds[kind] then
+		timing.components = timing.components + componentClock:getTime()
 		return nil
 	end
 	local network = api.engine.getComponent(entity, api.type.ComponentType.TRANSPORT_NETWORK) as Engine.Component.TransportNetwork
@@ -95,14 +96,14 @@ local function scanPiece(entity : Engine.Entity, timing : ScanTiming) : NullDozz
 	}
 end
 
-function network_scan.scanAll() : {NullDozzerNetworkScan.Piece}
+function network_scan.scanAll(kinds : {NullDozzerNetworkScan.Kind : boolean}) : {NullDozzerNetworkScan.Piece}
 	local pieces : {NullDozzerNetworkScan.Piece} = {}
 	local timing : ScanTiming = { components = 0.0, profiles = 0.0 }
 	local findClock = api.type.Clock.new()
 	local entities = allBaseEdges()
 	local findMicros = findClock:getTime()
 	for _, entity in ipairs(entities) do
-		local piece = scanPiece(entity, timing)
+		local piece = scanPiece(entity, kinds, timing)
 		if piece then
 			pieces[#pieces + 1] = piece
 		end

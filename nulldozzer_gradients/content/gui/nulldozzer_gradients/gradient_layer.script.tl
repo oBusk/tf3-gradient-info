@@ -21,6 +21,27 @@ local STRIP_WIDTH : {NullDozzerNetworkScan.Kind : number} = {
 	road = 2.5,
 }
 
+-- Which networks the layer colours, chosen in its dropdown.
+local enum Networks
+	"none"
+	"rail"
+	"all"
+end
+
+local NETWORK_CHOICES : {{string}} = {
+	{ "none", "None" },
+	{ "rail", "Rail" },
+	{ "all", "Rail and road" },
+}
+
+local KINDS_SHOWN : {Networks : {NullDozzerNetworkScan.Kind : boolean}} = {
+	rail = { track = true },
+	all = { track = true, road = true },
+}
+
+-- Remembered while the game runs, so the layer opens with the last choice.
+local chosenNetworks : Networks = "rail"
+
 local GRID_CELL_SIZE <const> = 20.0
 local LEGEND_LEVELS_PER_STEP <const> = 4
 
@@ -84,11 +105,11 @@ local function addToGrid(grid : NullDozzerPointGrid.Grid, piece : Piece)
 	end
 end
 
-local function buildLayerState() : LayerState
+local function buildLayerState(kinds : {NullDozzerNetworkScan.Kind : boolean}) : LayerState
 	local state : LayerState = { piecesByEntity = {}, grid = point_grid.new(GRID_CELL_SIZE), segmentStrips = {}, detailStrips = {} }
 	local totalClock = api.type.Clock.new()
 	local scanClock = api.type.Clock.new()
-	local pieces = network_scan.scanAll()
+	local pieces = network_scan.scanAll(kinds)
 	local scanMicros = scanClock:getTime()
 	local gridMicros, colorMicros, stripMicros, samples = 0.0, 0.0, 0.0, 0
 	for _, piece in ipairs(pieces) do
@@ -229,49 +250,110 @@ local function withGradients(terrainActionFn : (function() : TreeNodeId), state 
 	end
 end
 
-local GradientLegend = react.RegisterRecipe("NullDozzerGradientLegend", function() : TreeNodeId
+local function NetworksDropdown(networks : Networks, onChange : function(Networks)) : TreeNodeId
+	local items : {TreeNodeId} = {}
+	for _, choice in ipairs(NETWORK_CHOICES) do
+		items[#items + 1] = builtin.ComboBoxItem{
+			value = choice[1],
+			content = builtin.TextView{ meta = { class = "font-scale-title-4" }, text = choice[2] },
+		}
+	end
+	return builtin.ComboBox{
+		value = networks,
+		onValueChange = function(value : string)
+			onChange(value as Networks)
+		end,
+		items = items,
+	}
+end
+
+local record GradientLegendParam
+	networks : Networks
+	onNetworksChange : function(Networks)
+end
+
+local GradientLegend = react.RegisterRecipe("NullDozzerGradientLegend", function(param : GradientLegendParam) : TreeNodeId
+	local children : {TreeNodeId} = {
+		Subtitle("Gradients"),
+		NetworksDropdown(param.networks, param.onNetworksChange),
+	}
+	local kinds = KINDS_SHOWN[param.networks]
+	if kinds ~= nil then
+		if kinds.track then
+			children[#children + 1] = Subtitle("Track gradient")
+			children[#children + 1] = Legend("track")
+		end
+		if kinds.road then
+			children[#children + 1] = Subtitle("Road gradient")
+			children[#children + 1] = Legend("road")
+		end
+		children[#children + 1] = builtin.TextView{ text = "Colours show each segment's average.\nHold Shift to see the gradient every 4 m." }
+	end
 	return builtin.BoxLayout{
 		orientation = builtin.type.Orientation.Vertical,
-		children = {
-			Subtitle("Track gradient"),
-			Legend("track"),
-			Subtitle("Road gradient"),
-			Legend("road"),
-			builtin.TextView{ text = "Colours show each segment's average.\nHold Shift to see the gradient every 4 m." },
-		},
+		children = children,
 	}
 end)
 
 -- Stands in for the base game's Terrain data layer: the original layer, plus the
 -- gradient strips on the map and their legend below the terrain legend.
 local TerrainLayerWithGradients = react.RegisterRecipe("NullDozzerTerrainLayerWithGradients", function(param : LayersButtonRidge.LayerContentParam) : TreeNodeId
-	local stateRef : ReactRefT<LayerState> = react.useRef()
-	if stateRef:get() == nil then
-		stateRef:set(buildLayerState())
+	local networksState : ReactStateT<Networks> = react.useState(chosenNetworks)
+	local networks = networksState:old()
+
+	-- Built the first time each choice is shown while the layer is open.
+	local statesRef : ReactRefT<{Networks : LayerState}> = react.useRef()
+	if statesRef:get() == nil then
+		statesRef:set({})
 	end
+	local layerState : LayerState = nil
+	local kinds = KINDS_SHOWN[networks]
+	if kinds ~= nil then
+		local states = statesRef:get()
+		if states[networks] == nil then
+			states[networks] = buildLayerState(kinds)
+		end
+		layerState = states[networks]
+	end
+
 	local detailState = engine_react_util.useStepState(gradient_tooltip.isDetailHeld)
 	local detail = detailState:old() == true
+
+	local function wrap(actionFn : (function() : TreeNodeId)) : function() : TreeNodeId
+		if layerState == nil then
+			return actionFn
+		end
+		return withGradients(actionFn, layerState, detail)
+	end
 
 	-- The terrain layer sets its action while it renders. Keep the latest one, so a
 	-- change of detail re-wraps it even when the terrain layer does not re-render.
 	local terrainActionRef : ReactRefT<(function() : TreeNodeId)> = react.useRef()
 	local terrainActionKeyRef : ReactRefT<string> = react.useRef()
 	if terrainActionRef:get() ~= nil then
-		param.setActionFn(withGradients(terrainActionRef:get(), stateRef:get(), detail), terrainActionKeyRef:get())
+		param.setActionFn(wrap(terrainActionRef:get()), terrainActionKeyRef:get())
 	end
 
 	local terrainParam = table_util.copy(param)
 	terrainParam.setActionFn = function(actionFn : (function() : TreeNodeId), key? : string)
 		terrainActionRef:set(actionFn)
 		terrainActionKeyRef:set(key)
-		param.setActionFn(withGradients(actionFn, stateRef:get(), detail), key)
+		param.setActionFn(wrap(actionFn), key)
 	end
 
 	return builtin.BoxLayout{
 		orientation = builtin.type.Orientation.Vertical,
 		children = {
 			react.CallOriginalRecipe(TerrainLayer, terrainParam),
-			layer_react_util.LayerLegendWrapper{ content = GradientLegend() },
+			layer_react_util.LayerLegendWrapper{
+				content = GradientLegend{
+					networks = networks,
+					onNetworksChange = function(value : Networks)
+						chosenNetworks = value
+						networksState:set(value)
+					end,
+				},
+			},
 		},
 	}
 end)
