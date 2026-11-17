@@ -17,6 +17,7 @@ local line_react_util = ug_require "::/gui/line_vehicle_mgmt/line_react_util.tl"
 
 local line_climb = ug_require "nulldozzer_gradients::/gui/nulldozzer_gradients/line_climb.tl" as NullDozzerLineClimb
 local line_route = ug_require "nulldozzer_gradients::/gui/nulldozzer_gradients/line_route.tl" as NullDozzerLineRoute
+local store_performance = ug_require "nulldozzer_gradients::/gui/nulldozzer_gradients/store_performance.tl" as NullDozzerStorePerformance
 
 local STATISTICS_RECIPE <const> = "LineStatisticDetails"
 local ROW_CLASS <const> = "statistics-details"
@@ -62,7 +63,7 @@ local ClimbCell = react.RegisterRecipe("NullDozzerLineManagerClimb", function(li
 	local performanceText = "-"
 	if climb is NullDozzerClimbWindow.Climb then
 		climbText = api.util.toStringPercentPrecision(climb.gradient, 1) .. " over " .. api.util.formatLength(climb.window)
-		performanceText = line_climb.ratingFor(climb.gradient) or "Too steep"
+		performanceText = store_performance.ratingFor(climb.gradient) or "Too steep"
 	end
 
 	-- A recipe used as a layout child must itself return a layout.

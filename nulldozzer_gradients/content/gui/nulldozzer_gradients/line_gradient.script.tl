@@ -1,55 +1,22 @@
 local react = ug_require "::/gui/main/react.lua" as React
-local builtin = ug_require "::/gui/main/builtin.lua" as Builtin
-local content_card = ug_require "::/gui/main/content_card.tl" as ContentCard
 local line_eow = ug_require "::/gui/entity_window/line/line_eow.script.tl" as LineEow
 
+local gradient_card = ug_require "nulldozzer_gradients::/gui/nulldozzer_gradients/gradient_card.tl" as NullDozzerGradientCard
 local line_climb = ug_require "nulldozzer_gradients::/gui/nulldozzer_gradients/line_climb.tl" as NullDozzerLineClimb
 local line_route = ug_require "nulldozzer_gradients::/gui/nulldozzer_gradients/line_route.tl" as NullDozzerLineRoute
 
-local record Summary
-	-- nil if the route could not be measured.
-	climb : NullDozzerClimbWindow.Climb
-end
-
-local function summaryLines(summary : Summary) : {string}
-	local climb = summary.climb
+local function summaryLines(lineEntity : Engine.Entity) : {string}
+	local climb = line_climb.measure(lineEntity)
 	if climb == nil then
 		return { "Steepest climb: unknown (no route found)" }
 	end
 	return { line_climb.describe(climb), line_climb.describeRating(climb) }
 end
 
-local LineGradientSummary = react.RegisterRecipe("NullDozzerLineGradientSummary", function(lineEntity : Engine.Entity) : TreeNodeId
-	-- Measured once per opened window; reopen the window after changing the line or track.
-	local summaryRef : ReactRefT<Summary> = react.useRef()
-	if summaryRef:get() == nil then
-		summaryRef:set({ climb = line_climb.measure(lineEntity) })
-	end
-	local children : {TreeNodeId} = {}
-	for _, line in ipairs(summaryLines(summaryRef:get())) do
-		children[#children + 1] = builtin.TextView{ meta = { class = "font-scale-body" }, text = line }
-	end
-	return builtin.BoxLayout{
-		orientation = builtin.type.Orientation.Vertical,
-		children = children,
-	}
-end)
+local LineGradientSummary = gradient_card.registerSummary("NullDozzerLineGradientSummary", summaryLines)
 
 local LineGradientPlugin = react.RegisterPluginRecipe(line_eow.LineEowExtensionPoint, "NullDozzerLineGradientPlugin", function(params : LineEow.LineWidgetPluginParams) : TreeNodeId
-	return builtin.BoxLayout{
-		meta = { class = "box-plugin-vertical-space" },
-		orientation = builtin.type.Orientation.Vertical,
-		children = {
-			content_card.ContentCard{
-				meta = { localKey = "nullDozzerLineGradient" },
-				title = "Gradient",
-				initialCalloutTextPermanent = "",
-				recipeAndParamPermanent = content_card.makeRecipeAndParam(LineGradientSummary, params.entityId),
-				gameCtx = params.gameCtx,
-				showOnRightSide = params.showCalloutOnRightSide,
-			},
-		},
-	}
+	return gradient_card.Card(params, "nullDozzerLineGradient", LineGradientSummary)
 end)
 
 -- Lines already reported as hidden, so the log gets one entry per line.

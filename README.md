@@ -28,6 +28,8 @@ nulldozzer_gradients/       The mod itself (this folder is what the game loads)
     vehicle_gradient.*       Gradient card in the train window
     line_manager_climb.*     Climb row in the line manager's statistics
     line_climb.tl            A line's steepest climb and the rating it needs
+    store_performance.tl     The vehicle store's slope model: ratings, train figures, speed
+    gradient_card.tl         Shared Gradient card for the line and train windows
     line_route.tl            A line's route between stops, as height profiles
     climb_window.tl          Steepest climb over a given length
     *.d.tl                   Teal type definitions for the modules
