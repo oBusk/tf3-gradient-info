@@ -63,7 +63,14 @@ local function lanesOf(network : Engine.Component.TransportNetwork, kind : NullD
 	return lanes
 end
 
-local function scanPiece(entity : Engine.Entity) : NullDozzerNetworkScan.Piece
+-- Time spent per stage of the scan, in microseconds, for the log.
+local record ScanTiming
+	components : number
+	profiles : number
+end
+
+local function scanPiece(entity : Engine.Entity, timing : ScanTiming) : NullDozzerNetworkScan.Piece
+	local componentClock = api.type.Clock.new()
 	local baseEdge = api.engine.getComponent(entity, api.type.ComponentType.BASE_EDGE) as Engine.Component.BaseEdge
 	local kind = baseEdge and kindOf(baseEdge)
 	if kind == nil then
@@ -74,11 +81,15 @@ local function scanPiece(entity : Engine.Entity) : NullDozzerNetworkScan.Piece
 		return nil
 	end
 	local lanes = lanesOf(network, kind)
+	timing.components = timing.components + componentClock:getTime()
+	local profileClock = api.type.Clock.new()
+	local profile = edge_profile.measure(lanes[1])
+	timing.profiles = timing.profiles + profileClock:getTime()
 	return {
 		entity = entity,
 		kind = kind,
 		structure = structureOf(baseEdge),
-		profile = edge_profile.measure(lanes[1]),
+		profile = profile,
 		network = network,
 		lanes = lanes,
 	}
@@ -86,12 +97,18 @@ end
 
 function network_scan.scanAll() : {NullDozzerNetworkScan.Piece}
 	local pieces : {NullDozzerNetworkScan.Piece} = {}
-	for _, entity in ipairs(allBaseEdges()) do
-		local piece = scanPiece(entity)
+	local timing : ScanTiming = { components = 0.0, profiles = 0.0 }
+	local findClock = api.type.Clock.new()
+	local entities = allBaseEdges()
+	local findMicros = findClock:getTime()
+	for _, entity in ipairs(entities) do
+		local piece = scanPiece(entity, timing)
 		if piece then
 			pieces[#pieces + 1] = piece
 		end
 	end
+	log.message(string.format("[nulldozzer_gradients] scan: find %.1f ms, components %.1f ms, profiles %.1f ms",
+		findMicros / 1000.0, timing.components / 1000.0, timing.profiles / 1000.0))
 	return pieces
 end
 

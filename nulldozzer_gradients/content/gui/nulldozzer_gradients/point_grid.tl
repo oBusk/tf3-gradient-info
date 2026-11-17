@@ -4,8 +4,12 @@ local function cellIndex(grid : NullDozzerPointGrid.Grid, coordinate : number) :
 	return math.floor(coordinate / grid.cellSize)
 end
 
-local function cellKey(cx : integer, cy : integer) : string
-	return tostring(cx) .. ":" .. tostring(cy)
+-- Cells are keyed by one integer rather than a "cx:cy" string, which made adding
+-- tens of thousands of points slow. Exact for maps up to 2^20 cells across.
+local ROW_STRIDE <const> = 1 << 21
+
+local function cellKey(cx : integer, cy : integer) : integer
+	return cx * ROW_STRIDE + cy
 end
 
 function point_grid.new(cellSize : number) : NullDozzerPointGrid.Grid

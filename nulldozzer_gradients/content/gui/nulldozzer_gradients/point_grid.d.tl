@@ -8,7 +8,7 @@ global record NullDozzerPointGrid
 
 	record Grid
 		cellSize : number
-		cells : {string : {Point}}
+		cells : {integer : {Point}}
 	end
 
 	new : function(cellSize : number) : Grid

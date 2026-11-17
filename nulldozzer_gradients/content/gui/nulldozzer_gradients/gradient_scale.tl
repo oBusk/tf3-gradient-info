@@ -106,9 +106,37 @@ function gradient_scale.forKind(kind : Kind) : Scale
 	return scales[kind]
 end
 
+-- Colours are shared between all gradients within 1/COLOR_LEVELS of the scale of
+-- each other, far finer than the eye can tell apart, so the layer creates a few
+-- hundred colours rather than one per sample.
+local COLOR_LEVELS <const> = 512
+
+local colorCache : {Scale : {number : {integer : Vec4f}}} = {}
+
+local function levelOf(scale : Scale, gradient : number) : integer
+	local level = math.floor(gradient / scale.maxGradient * COLOR_LEVELS + 0.5)
+	return math.max(0, math.min(COLOR_LEVELS, level))
+end
+
 function gradient_scale.colorFor(scale : Scale, gradient : number, opacity : number) : Vec4f
-	local rgb = rgbAt(scale, gradient)
-	return api.type.Vec4f.new(rgb[1], rgb[2], rgb[3], opacity)
+	local byOpacity = colorCache[scale]
+	if byOpacity == nil then
+		byOpacity = {}
+		colorCache[scale] = byOpacity
+	end
+	local byLevel = byOpacity[opacity]
+	if byLevel == nil then
+		byLevel = {}
+		byOpacity[opacity] = byLevel
+	end
+	local level = levelOf(scale, gradient)
+	local color = byLevel[level]
+	if color == nil then
+		local rgb = rgbAt(scale, level / COLOR_LEVELS * scale.maxGradient)
+		color = api.type.Vec4f.new(rgb[1], rgb[2], rgb[3], opacity)
+		byLevel[level] = color
+	end
+	return color
 end
 
 return gradient_scale

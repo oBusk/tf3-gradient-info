@@ -86,14 +86,35 @@ end
 
 local function buildLayerState() : LayerState
 	local state : LayerState = { piecesByEntity = {}, grid = point_grid.new(GRID_CELL_SIZE), segmentStrips = {}, detailStrips = {} }
-	for _, piece in ipairs(network_scan.scanAll()) do
+	local totalClock = api.type.Clock.new()
+	local scanClock = api.type.Clock.new()
+	local pieces = network_scan.scanAll()
+	local scanMicros = scanClock:getTime()
+	local gridMicros, colorMicros, stripMicros, samples = 0.0, 0.0, 0.0, 0
+	for _, piece in ipairs(pieces) do
 		state.piecesByEntity[piece.entity] = piece
+		local gridClock = api.type.Clock.new()
 		addToGrid(state.grid, piece)
-		for _, lane in ipairs(piece.lanes) do
-			state.segmentStrips[#state.segmentStrips + 1] = makeStrip(lane, piece, segmentColors(piece))
-			state.detailStrips[#state.detailStrips + 1] = makeStrip(lane, piece, detailColors(lane, piece))
+		gridMicros = gridMicros + gridClock:getTime()
+		samples = samples + #piece.profile.samples
+		local colorClock = api.type.Clock.new()
+		local segment = segmentColors(piece)
+		local details : {{Vec4f}} = {}
+		for i, lane in ipairs(piece.lanes) do
+			details[i] = detailColors(lane, piece)
 		end
+		colorMicros = colorMicros + colorClock:getTime()
+		local stripClock = api.type.Clock.new()
+		for i, lane in ipairs(piece.lanes) do
+			state.segmentStrips[#state.segmentStrips + 1] = makeStrip(lane, piece, segment)
+			state.detailStrips[#state.detailStrips + 1] = makeStrip(lane, piece, details[i])
+		end
+		stripMicros = stripMicros + stripClock:getTime()
 	end
+	log.message(string.format(
+		"[nulldozzer_gradients] built terrain gradient layer in %.1f ms (scan %.1f, grid %.1f, colours %.1f, strips %.1f; %d pieces, %d samples, %d strips)",
+		totalClock:getTime() / 1000.0, scanMicros / 1000.0, gridMicros / 1000.0, colorMicros / 1000.0, stripMicros / 1000.0,
+		#pieces, samples, #state.segmentStrips))
 	return state
 end
 
