@@ -2,12 +2,11 @@
 
 A [Transport Fever 3](https://transportfever3.com) mod that adds a data layer coloring built tracks by their gradient, so you can find sections that are too steep for your trains.
 
-Planned:
+**Status:** prototype.
 
-- A gradient data layer for tracks.
-- The steepest gradient of a line, shown in the line info.
-
-**Status:** prototype. The game's Terrain data layer also colors every track and road segment by its steepest gradient (green → yellow → red → black; tracks up to 9%, roads up to 20%), and shows gradients in a tooltip.
+- **Terrain data layer:** also colors every track and road segment by its average gradient (green → yellow → red → black; tracks up to 9%, roads up to 20%; hold Shift for every 4 m), and shows gradients in a tooltip.
+- **Line window:** a Gradient card for rail lines with the steepest climb over the shortest platform's length, and the vehicle store Performance rating a train needs to hold full speed on it.
+- **Train window:** a Gradient card with the steepest climb on the train's line over the train's length, and the speed this train holds there fully loaded.
 
 ## Repository layout
 
@@ -24,6 +23,10 @@ nulldozzer_gradients/       The mod itself (this folder is what the game loads)
     edge_profile.tl          Measures gradients along a segment
     gradient_scale.tl        Gradient to color
     point_grid.tl            Spatial lookup for the tooltip
+    line_gradient.*          Gradient card in the line window
+    vehicle_gradient.*       Gradient card in the train window
+    line_route.tl            A line's route between stops, as height profiles
+    climb_window.tl          Steepest climb over a given length
     *.d.tl                   Teal type definitions for the modules
 tlconfig.lua, all_def.tl     Teal type-checking config for the editor
 ```
