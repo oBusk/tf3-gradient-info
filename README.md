@@ -7,6 +7,7 @@ A [Transport Fever 3](https://transportfever3.com) mod that adds a data layer co
 - **Terrain data layer:** also colors every track and road segment by its average gradient (green → yellow → red → black; tracks up to 9%, roads up to 20%; hold Shift for every 4 m), and shows gradients in a tooltip.
 - **Line window:** a Gradient card for rail lines with the steepest climb over the shortest platform's length, and the vehicle store Performance rating a train needs to hold full speed on it.
 - **Train window:** a Gradient card with the steepest climb on the train's line over the train's length, and the speed this train holds there fully loaded.
+- **Line manager:** for rail lines, a row below the line's statistics with the steepest climb and the Performance rating it needs.
 
 ## Repository layout
 
@@ -25,6 +26,8 @@ nulldozzer_gradients/       The mod itself (this folder is what the game loads)
     point_grid.tl            Spatial lookup for the tooltip
     line_gradient.*          Gradient card in the line window
     vehicle_gradient.*       Gradient card in the train window
+    line_manager_climb.*     Climb row in the line manager's statistics
+    line_climb.tl            A line's steepest climb and the rating it needs
     line_route.tl            A line's route between stops, as height profiles
     climb_window.tl          Steepest climb over a given length
     *.d.tl                   Teal type definitions for the modules
