@@ -77,7 +77,9 @@ local ClimbCell = react.RegisterRecipe("NullDozzerLineManagerClimb", function(li
 	}
 end)
 
-local originalComponent : Recipe<Builtin.ComponentParam> = nil
+-- Builtins are called either as Component(param) or as Component(ref, param),
+-- so the wrapper takes and forwards both arguments.
+local originalComponent : function(first : any, second? : any) : TreeNodeId = nil
 
 local function isStatisticsRow(param : Builtin.ComponentParam) : boolean
 	local meta = param and (param as {string : any}).meta as {string : any}
@@ -96,16 +98,20 @@ local function withClimbCell(param : Builtin.ComponentParam, lineEntity : Engine
 	return param
 end
 
-local function component(param : Builtin.ComponentParam) : TreeNodeId
+local function component(first : any, second : any) : TreeNodeId
 	local lineEntity = renderingLine
-	if lineEntity ~= nil and isStatisticsRow(param) then
+	-- The statistics row is built with the one-argument form, without a ref.
+	if lineEntity ~= nil and second == nil and isStatisticsRow(first as Builtin.ComponentParam) then
 		renderingLine = nil
 		local ok, isRail = pcall(line_route.isRailLine, lineEntity)
 		if ok and isRail then
-			return originalComponent(withClimbCell(param, lineEntity))
+			return originalComponent(withClimbCell(first as Builtin.ComponentParam, lineEntity))
 		end
 	end
-	return originalComponent(param)
+	if second == nil then
+		return originalComponent(first)
+	end
+	return originalComponent(first, second)
 end
 
 local function lineBalance(param : LineReactUtil.LineBalanceParams) : TreeNodeId
@@ -120,7 +126,7 @@ local function doReplace(replacementApi : ReactReplacementApi)
 		return
 	end
 	-- Keep whatever is there now, so this chains with other mods that wrap it too.
-	originalComponent = builtin.Component
+	originalComponent = builtin.Component as function(first : any, second? : any) : TreeNodeId
 	local patchable = builtin as {string : any}
 	patchable.Component = component
 	replacementApi.ReplaceRecipe(line_react_util.LineBalance, lineBalance as Recipe<LineReactUtil.LineBalanceParams>)
