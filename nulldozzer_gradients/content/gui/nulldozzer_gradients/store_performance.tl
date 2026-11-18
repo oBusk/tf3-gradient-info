@@ -1,4 +1,5 @@
 local vehicle_store_util = ug_require "::/gui/line_vehicle_mgmt/vehicle_store_util.tl" as VehicleStoreUtil
+local vehicle_util = ug_require "::/gui/line_vehicle_mgmt/vehicle_util.tl" as VehicleUtil
 
 local store_performance : NullDozzerStorePerformance = {}
 
@@ -13,11 +14,6 @@ local RATINGS : {{number, string}} = {
 	{ RATING_STEP + RATING_MARGIN, "Good" },
 	{ 2 * RATING_STEP + RATING_MARGIN, "Excellent" },
 }
-
--- Slope force is SLOPE_FORCE_FACTOR * slope * weight, and only USABLE_SHARE of
--- power and tractive effort count.
-local SLOPE_FORCE_FACTOR <const> = 3.27
-local USABLE_SHARE <const> = 0.95
 
 function store_performance.trainOf(tv : Engine.Component.TransportVehicle) : Train
 	local vehicles : {VehicleStoreUtil.Vehicle} = {}
@@ -44,15 +40,14 @@ function store_performance.ratingFor(gradient : number) : string
 	return nil
 end
 
-function store_performance.speedOn(train : Train, gradient : number) : number
+-- The store's own function, called the way the store calls it, so the rating
+-- matches what the store shows for the train.
+function store_performance.ratingOf(train : Train) : string
 	if train.power <= 0.0 or train.tractiveEffort <= 0.0 then
 		return nil
 	end
-	local resistance = SLOPE_FORCE_FACTOR * gradient * train.weight + train.rollingFriction
-	if resistance > USABLE_SHARE * train.tractiveEffort then
-		return 0.0
-	end
-	return math.min(train.topSpeed, USABLE_SHARE * train.power / resistance)
+	local result = vehicle_util.getPowerRatingTextAndToolTip(train.weight, train.power, train.tractiveEffort, train.topSpeed, train.rollingFriction)
+	return result and result[1] as string or nil
 end
 
 return store_performance

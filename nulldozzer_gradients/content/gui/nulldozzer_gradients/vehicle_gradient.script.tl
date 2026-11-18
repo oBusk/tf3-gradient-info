@@ -1,7 +1,7 @@
 local react = ug_require "::/gui/main/react.lua" as React
 local vehicle_eow = ug_require "::/gui/entity_window/vehicle/vehicle_eow.script.tl" as VehicleEow
 
-local gradient_card = ug_require "nulldozzer_gradients::/gui/nulldozzer_gradients/gradient_card.tl" as NullDozzerGradientCard
+local line_info_card = ug_require "nulldozzer_gradients::/gui/nulldozzer_gradients/line_info_card.tl" as NullDozzerLineInfoCard
 local line_climb = ug_require "nulldozzer_gradients::/gui/nulldozzer_gradients/line_climb.tl" as NullDozzerLineClimb
 local line_route = ug_require "nulldozzer_gradients::/gui/nulldozzer_gradients/line_route.tl" as NullDozzerLineRoute
 local store_performance = ug_require "nulldozzer_gradients::/gui/nulldozzer_gradients/store_performance.tl" as NullDozzerStorePerformance
@@ -12,42 +12,34 @@ local function transportVehicleOf(vehicleEntity : Engine.Entity) : Engine.Compon
 	return api.engine.getComponent(vehicleEntity, api.type.ComponentType.TRANSPORT_VEHICLE) as Engine.Component.TransportVehicle
 end
 
-local function performanceLine(train : Train, gradient : number) : string
-	local speed = store_performance.speedOn(train, gradient)
-	if speed == nil then
-		return nil
-	elseif speed <= 0.0 then
-		return "Fully loaded, this train lacks the power to climb it"
-	elseif speed >= train.topSpeed then
-		return "Fully loaded, this train holds its top speed (" .. api.util.formatSpeed(train.topSpeed) .. ") there"
-	end
-	return "Fully loaded, this train slows to " .. api.util.formatSpeed(speed)
-		.. " there (top speed " .. api.util.formatSpeed(train.topSpeed) .. ")"
+-- "Current train: Good", the train's own rating, to read against the one required.
+-- nil if the train has no rating (e.g. no locomotive).
+local function currentTrainText(train : Train) : string
+	local rating = store_performance.ratingOf(train)
+	return rating and ("Current train: " .. rating) or nil
 end
 
-local function summaryLines(vehicleEntity : Engine.Entity) : {string}
+local function summaryFor(vehicleEntity : Engine.Entity) : NullDozzerLineInfoCard.Summary
 	local tv = transportVehicleOf(vehicleEntity)
 	local ok, result = pcall(store_performance.trainOf, tv)
 	if not ok then
 		log.message("[nulldozzer_gradients] could not read train " .. tostring(vehicleEntity) .. ": " .. tostring(result))
-		return { "Steepest climb: unknown (could not read the train)" }
+		return { note = "Could not read the train" }
 	end
 	local train = result as Train
-	local climb = line_climb.measure(tv.line, train.length)
-	if climb == nil then
-		return { "Steepest climb: unknown (no route found)" }
+	local info = line_climb.measure(tv.line, train.length)
+	if info == nil or info.climb == nil then
+		return { note = "Route unknown: the path between the line's stops was not found" }
 	end
-	return {
-		"Steepest climb on its line: " .. api.util.toStringPercentPrecision(climb.gradient, 1)
-			.. " (over " .. api.util.formatLength(climb.window) .. ", the train's length)",
-		performanceLine(train, climb.gradient),
-	}
+	local cells = line_info_card.routeCells(tv.line, info)
+	cells[#cells + 1] = line_info_card.slopeCell(info.climb, { currentTrainText(train) })
+	return { cells = cells }
 end
 
-local VehicleGradientSummary = gradient_card.registerSummary("NullDozzerVehicleGradientSummary", summaryLines)
+local VehicleInfoSummary = line_info_card.registerSummary("NullDozzerVehicleLineInfoSummary", summaryFor)
 
 local VehicleGradientPlugin = react.RegisterPluginRecipe(vehicle_eow.VehicleEowExtensionPoint, "NullDozzerVehicleGradientPlugin", function(params : VehicleEow.VehicleWidgetPluginParams) : TreeNodeId
-	return gradient_card.Card(params, "nullDozzerVehicleGradient", VehicleGradientSummary)
+	return line_info_card.Card(params, "nullDozzerVehicleGradient", VehicleInfoSummary)
 end)
 
 local function isTrainOnRailLine(vehicleEntity : Engine.Entity) : boolean

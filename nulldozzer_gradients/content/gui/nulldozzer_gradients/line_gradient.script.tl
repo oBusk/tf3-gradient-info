@@ -1,22 +1,26 @@
 local react = ug_require "::/gui/main/react.lua" as React
 local line_eow = ug_require "::/gui/entity_window/line/line_eow.script.tl" as LineEow
 
-local gradient_card = ug_require "nulldozzer_gradients::/gui/nulldozzer_gradients/gradient_card.tl" as NullDozzerGradientCard
+local line_info_card = ug_require "nulldozzer_gradients::/gui/nulldozzer_gradients/line_info_card.tl" as NullDozzerLineInfoCard
 local line_climb = ug_require "nulldozzer_gradients::/gui/nulldozzer_gradients/line_climb.tl" as NullDozzerLineClimb
 local line_route = ug_require "nulldozzer_gradients::/gui/nulldozzer_gradients/line_route.tl" as NullDozzerLineRoute
 
-local function summaryLines(lineEntity : Engine.Entity) : {string}
-	local climb = line_climb.measure(lineEntity)
-	if climb == nil then
-		return { "Steepest climb: unknown (no route found)" }
+local NO_ROUTE <const> = "Route unknown: the path between the line's stops was not found"
+
+local function summaryFor(lineEntity : Engine.Entity) : NullDozzerLineInfoCard.Summary
+	local info = line_climb.measure(lineEntity)
+	if info == nil or info.climb == nil then
+		return { note = NO_ROUTE }
 	end
-	return { line_climb.describe(climb), line_climb.describeRating(climb) }
+	local cells = line_info_card.routeCells(lineEntity, info)
+	cells[#cells + 1] = line_info_card.slopeCell(info.climb)
+	return { cells = cells }
 end
 
-local LineGradientSummary = gradient_card.registerSummary("NullDozzerLineGradientSummary", summaryLines)
+local LineInfoSummary = line_info_card.registerSummary("NullDozzerLineInfoSummary", summaryFor)
 
 local LineGradientPlugin = react.RegisterPluginRecipe(line_eow.LineEowExtensionPoint, "NullDozzerLineGradientPlugin", function(params : LineEow.LineWidgetPluginParams) : TreeNodeId
-	return gradient_card.Card(params, "nullDozzerLineGradient", LineGradientSummary)
+	return line_info_card.Card(params, "nullDozzerLineGradient", LineInfoSummary)
 end)
 
 -- Lines already reported as hidden, so the log gets one entry per line.
@@ -27,7 +31,7 @@ local function conditionRailLine(params : LineEow.LineWidgetPluginParams) : bool
 	local show = ok and isRail == true
 	if not show and not reportedHidden[params.entityId] then
 		reportedHidden[params.entityId] = true
-		log.message("[nulldozzer_gradients] no gradient card for line " .. tostring(params.entityId) .. ": "
+		log.message("[nulldozzer_gradients] no line info card for line " .. tostring(params.entityId) .. ": "
 			.. (ok and "not a rail line" or tostring(isRail)))
 	end
 	return show

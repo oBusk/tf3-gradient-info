@@ -16,7 +16,7 @@ global record NullDozzerStorePerformance
 	--- Performance rating a train needs to hold full speed on the gradient
 	--- ("Mediocre", "Good" or "Excellent"); nil if no rating is enough.
 	ratingFor : function(gradient : number) : string
-	--- Speed the train holds on the gradient; 0 if it lacks the power to climb
-	--- it, nil if the train has no power figures (e.g. no locomotive).
-	speedOn : function(train : Train, gradient : number) : number
+	--- The train's Performance rating as the vehicle store shows it; nil if it
+	--- has no power figures (e.g. no locomotive) or the store gives none.
+	ratingOf : function(train : Train) : string
 end

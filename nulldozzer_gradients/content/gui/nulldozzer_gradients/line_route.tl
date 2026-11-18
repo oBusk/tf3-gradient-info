@@ -185,7 +185,7 @@ end
 function line_route.measure(lineEntity : Engine.Entity) : NullDozzerLineRoute.Route
 	local line = lineOf(lineEntity)
 	local modes = railModesOf(lineEntity, line)
-	local route : NullDozzerLineRoute.Route = { legs = {}, shortestPlatform = 0.0 }
+	local route : NullDozzerLineRoute.Route = { legs = {}, shortestPlatform = 0.0, stops = 0 }
 	if #modes == 0 or line.stops == nil or #line.stops < 2 then
 		return route
 	end
@@ -202,6 +202,7 @@ function line_route.measure(lineEntity : Engine.Entity) : NullDozzerLineRoute.Ro
 			end
 		end
 	end
+	route.stops = #terminals
 	local totalClock = api.type.Clock.new()
 	local timing : Timing = { pathfindingMicros = 0, samplingMicros = 0, edges = 0 }
 	local pointCount = 0

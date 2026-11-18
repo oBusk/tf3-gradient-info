@@ -4,6 +4,9 @@ global record NullDozzerLineRoute
 		legs : {{NullDozzerClimbWindow.Point}}
 		--- Shortest platform the line stops at; 0 if unknown.
 		shortestPlatform : number
+		--- Stops on the line. With every leg found, legs has one leg per stop,
+		--- the last returning to the first stop.
+		stops : integer
 	end
 
 	--- True for lines that trains run on.

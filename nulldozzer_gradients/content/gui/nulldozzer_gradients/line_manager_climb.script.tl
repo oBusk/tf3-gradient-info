@@ -49,7 +49,7 @@ end
 local ClimbCell = react.RegisterRecipe("NullDozzerLineManagerClimb", function(lineEntity : Engine.Entity) : TreeNodeId
 	-- One measurement per line while the line manager is open, so switching
 	-- between lines does not measure them again.
-	local climbsRef : ReactRefT<{Engine.Entity : NullDozzerClimbWindow.Climb | boolean}> = react.useRef()
+	local climbsRef : ReactRefT<{Engine.Entity : NullDozzerLineClimb.LineInfo | boolean}> = react.useRef()
 	if climbsRef:get() == nil then
 		climbsRef:set({})
 	end
@@ -57,11 +57,12 @@ local ClimbCell = react.RegisterRecipe("NullDozzerLineManagerClimb", function(li
 	if climbs[lineEntity] == nil then
 		climbs[lineEntity] = line_climb.measure(lineEntity) or false
 	end
-	local climb = climbs[lineEntity]
+	local info = climbs[lineEntity]
 
 	local climbText = "Unknown (no route found)"
 	local performanceText = "-"
-	if climb is NullDozzerClimbWindow.Climb then
+	if info is NullDozzerLineClimb.LineInfo and info.climb ~= nil then
+		local climb = info.climb
 		climbText = api.util.toStringPercentPrecision(climb.gradient, 1) .. " over " .. api.util.formatLength(climb.window)
 		performanceText = store_performance.ratingFor(climb.gradient) or "Too steep"
 	end

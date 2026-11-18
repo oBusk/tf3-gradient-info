@@ -5,8 +5,8 @@ A [Transport Fever 3](https://transportfever3.com) mod that adds a data layer co
 **Status:** prototype.
 
 - **Terrain data layer:** also colors track segments, or tracks and roads, chosen in a dropdown, by their average gradient (green → yellow → red → black; tracks up to 9%, roads up to 20%; hold Shift for every 4 m), and shows gradients in a tooltip.
-- **Line window:** a Gradient card for rail lines with the steepest climb over the shortest platform's length, and the vehicle store Performance rating a train needs to hold full speed on it.
-- **Train window:** a Gradient card with the steepest climb on the train's line over the train's length, and the speed this train holds there fully loaded.
+- **Line window:** a Line info card for rail lines, in the style of the game's own figures: round trip length, number of stops (average distance between them on hover), average speed including stops, and the steepest climb over the shortest platform's length (the vehicle store Performance rating needed on hover).
+- **Train window:** the same card for the train's line, with the steepest climb over the train's length and, on hover, the Performance rating it requires next to the train's own.
 - **Line manager:** for rail lines, a row below the line's statistics with the steepest climb and the Performance rating it needs.
 
 ## Repository layout
@@ -26,9 +26,9 @@ nulldozzer_gradients/       The mod itself (this folder is what the game loads)
     line_gradient.*          Gradient card in the line window
     vehicle_gradient.*       Gradient card in the train window
     line_manager_climb.*     Climb row in the line manager's statistics
-    line_climb.tl            A line's steepest climb and the rating it needs
-    store_performance.tl     The vehicle store's slope model: ratings, train figures, speed
-    gradient_card.tl         Shared Gradient card for the line and train windows
+    line_climb.tl            A line's length and steepest climb
+    store_performance.tl     The vehicle store's Performance ratings and train figures
+    line_info_card.tl        Shared Line info card for the line and train windows
     line_route.tl            A line's route between stops, as height profiles
     climb_window.tl          Steepest climb over a given length
     *.d.tl                   Teal type definitions for the modules
