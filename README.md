@@ -20,10 +20,9 @@ nulldozzer_gradients/       The mod itself (this folder is what the game loads)
     gradient_layer.script.tl Terrain layer wrapper, legend and coloring
     gradient_layer.css.lua   Legend layout
     gradient_tooltip.tl      Hover tooltip
-    network_scan.tl          Finds track and road segments
+    network_scan.tl          Finds track and road segments, kept between openings
     edge_profile.tl          Measures gradients along a segment
     gradient_scale.tl        Gradient to color
-    point_grid.tl            Spatial lookup for the tooltip
     line_gradient.*          Gradient card in the line window
     vehicle_gradient.*       Gradient card in the train window
     line_manager_climb.*     Climb row in the line manager's statistics

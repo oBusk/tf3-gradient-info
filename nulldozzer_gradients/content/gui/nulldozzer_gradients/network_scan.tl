@@ -2,8 +2,13 @@ local edge_profile = ug_require "nulldozzer_gradients::/gui/nulldozzer_gradients
 
 local network_scan : NullDozzerNetworkScan = {}
 
+local type Kind = NullDozzerNetworkScan.Kind
+local type Piece = NullDozzerNetworkScan.Piece
+
 local WHOLE_MAP_CENTER <const> = { 0.0, 0.0 }
 local WHOLE_MAP_RADIUS <const> = 1e10
+-- Profiles kept for the tooltip; when there are more, all are dropped.
+local MAX_KEPT_PROFILES <const> = 64
 
 local ROAD_LANE_MODES : {TransportMode} = {
 	api.type["enum"].TransportMode.CAR,
@@ -13,12 +18,33 @@ local ROAD_LANE_MODES : {TransportMode} = {
 	api.type["enum"].TransportMode.ELECTRIC_TRAM,
 }
 
+-- What is known about one edge entity, kept between scans.
+local record Entry
+	-- nil for edges that are neither track nor road.
+	kind : Kind
+	-- The edge's ends when it was read. If they differ, the entity was rebuilt
+	-- or reused, and the entry is read again.
+	x0 : number
+	y0 : number
+	z0 : number
+	x1 : number
+	y1 : number
+	z1 : number
+	-- nil until the edge is shown, or while its lanes cannot be read yet.
+	piece : Piece
+end
+
+local entries : {Engine.Entity : Entry} = {}
+
+local keptProfiles : {Piece : NullDozzerEdgeProfile.Profile} = {}
+local keptProfileCount = 0
+
 local function allBaseEdges() : {Engine.Entity}
 	local center = api.type.Vec2f.new(WHOLE_MAP_CENTER[1], WHOLE_MAP_CENTER[2])
 	return api.engine.util.octree.findEntitiesInCircle(center, WHOLE_MAP_RADIUS, api.type.ComponentType.BASE_EDGE)
 end
 
-local function kindOf(baseEdge : Engine.Component.BaseEdge) : NullDozzerNetworkScan.Kind
+local function kindOf(baseEdge : Engine.Component.BaseEdge) : Kind
 	if baseEdge.roadType == api.type["enum"].RoadType.TRACK then
 		return "track"
 	end
@@ -47,7 +73,7 @@ local function carriesRoadTraffic(edge : Edge) : boolean
 	return false
 end
 
-local function lanesOf(network : Engine.Component.TransportNetwork, kind : NullDozzerNetworkScan.Kind) : {EdgeGeometry}
+local function lanesOf(network : Engine.Component.TransportNetwork, kind : Kind) : {EdgeGeometry}
 	if kind == "track" then
 		return { network.edges[1].geometry }
 	end
@@ -63,54 +89,122 @@ local function lanesOf(network : Engine.Component.TransportNetwork, kind : NullD
 	return lanes
 end
 
--- Time spent per stage of the scan, in microseconds, for the log.
-local record ScanTiming
-	components : number
-	profiles : number
-end
-
-local function scanPiece(entity : Engine.Entity, kinds : {NullDozzerNetworkScan.Kind : boolean}, timing : ScanTiming) : NullDozzerNetworkScan.Piece
-	local componentClock = api.type.Clock.new()
-	local baseEdge = api.engine.getComponent(entity, api.type.ComponentType.BASE_EDGE) as Engine.Component.BaseEdge
-	local kind = baseEdge and kindOf(baseEdge)
-	if kind == nil or not kinds[kind] then
-		timing.components = timing.components + componentClock:getTime()
-		return nil
-	end
-	local network = api.engine.getComponent(entity, api.type.ComponentType.TRANSPORT_NETWORK) as Engine.Component.TransportNetwork
-	if network == nil or network.edges == nil or #network.edges == 0 then
-		return nil
-	end
-	local lanes = lanesOf(network, kind)
-	timing.components = timing.components + componentClock:getTime()
-	local profileClock = api.type.Clock.new()
-	local profile = edge_profile.measure(lanes[1])
-	timing.profiles = timing.profiles + profileClock:getTime()
+local function newEntry(baseEdge : Engine.Component.BaseEdge) : Entry
+	local p0, p1 = baseEdge.position0, baseEdge.position1
 	return {
-		entity = entity,
-		kind = kind,
-		structure = structureOf(baseEdge),
-		profile = profile,
-		network = network,
-		lanes = lanes,
+		kind = kindOf(baseEdge),
+		x0 = p0.x, y0 = p0.y, z0 = p0.z,
+		x1 = p1.x, y1 = p1.y, z1 = p1.z,
 	}
 end
 
-function network_scan.scanAll(kinds : {NullDozzerNetworkScan.Kind : boolean}) : {NullDozzerNetworkScan.Piece}
-	local pieces : {NullDozzerNetworkScan.Piece} = {}
-	local timing : ScanTiming = { components = 0.0, profiles = 0.0 }
-	local findClock = api.type.Clock.new()
+local function isUnchanged(entry : Entry, baseEdge : Engine.Component.BaseEdge) : boolean
+	local p0, p1 = baseEdge.position0, baseEdge.position1
+	return entry.x0 == p0.x and entry.y0 == p0.y and entry.z0 == p0.z
+		and entry.x1 == p1.x and entry.y1 == p1.y and entry.z1 == p1.z
+end
+
+-- Lane geometry must be read fresh each time it is used: geometry kept from an
+-- earlier frame can point at engine memory that has since been freed or moved,
+-- and calcPosition on it fails an engine assertion that ends the game.
+local function readLanes(entity : Engine.Entity, kind : Kind) : {EdgeGeometry}, Engine.Component.TransportNetwork
+	local network = api.engine.getComponent(entity, api.type.ComponentType.TRANSPORT_NETWORK) as Engine.Component.TransportNetwork
+	if network == nil or network.edges == nil or #network.edges == 0 then
+		return nil, nil
+	end
+	return lanesOf(network, kind), network
+end
+
+-- The average from the ends alone: height change over the horizontal length.
+-- Assumes the lane's length includes height, as a length along a slope does.
+local function makePiece(entity : Engine.Entity, entry : Entry, baseEdge : Engine.Component.BaseEdge) : Piece
+	local lanes = readLanes(entity, entry.kind)
+	if lanes == nil then
+		return nil
+	end
+	local rise = entry.z1 - entry.z0
+	local length = lanes[1].length
+	local run = math.sqrt(math.max(0.0, length * length - rise * rise))
+	return {
+		entity = entity,
+		kind = entry.kind,
+		structure = structureOf(baseEdge),
+		averageGradient = run > 0.01 and math.abs(rise) / run or 0.0,
+		horizontalLength = run,
+	}
+end
+
+function network_scan.lanesOf(piece : Piece) : {EdgeGeometry}, Engine.Component.TransportNetwork
+	if not api.engine.entityExists(piece.entity) then
+		return nil, nil
+	end
+	return readLanes(piece.entity, piece.kind)
+end
+
+local EMPTY_PROFILE : NullDozzerEdgeProfile.Profile = { averageGradient = 0.0, maxGradient = 0.0, horizontalLength = 0.0, samples = {} }
+
+function network_scan.current(kinds : {Kind : boolean}) : {Piece}
+	local clock = api.type.Clock.new()
 	local entities = allBaseEdges()
-	local findMicros = findClock:getTime()
+	local findMicros = clock:getTime()
+
+	local pieces : {Piece} = {}
+	local seen : {Engine.Entity : boolean} = {}
+	local read, made, removed = 0, 0, 0
 	for _, entity in ipairs(entities) do
-		local piece = scanPiece(entity, kinds, timing)
-		if piece then
-			pieces[#pieces + 1] = piece
+		seen[entity] = true
+		local baseEdge = api.engine.getComponent(entity, api.type.ComponentType.BASE_EDGE) as Engine.Component.BaseEdge
+		if baseEdge ~= nil then
+			local entry = entries[entity]
+			if entry == nil or not isUnchanged(entry, baseEdge) then
+				entry = newEntry(baseEdge)
+				entries[entity] = entry
+				read = read + 1
+			end
+			if entry.kind ~= nil and kinds[entry.kind] then
+				if entry.piece == nil then
+					-- Tried again on every scan until the lanes can be read.
+					entry.piece = makePiece(entity, entry, baseEdge)
+					if entry.piece ~= nil then
+						made = made + 1
+					end
+				end
+				if entry.piece ~= nil then
+					pieces[#pieces + 1] = entry.piece
+				end
+			end
 		end
 	end
-	log.message(string.format("[nulldozzer_gradients] scan: find %.1f ms, components %.1f ms, profiles %.1f ms",
-		findMicros / 1000.0, timing.components / 1000.0, timing.profiles / 1000.0))
+	for entity in pairs(entries) do
+		if not seen[entity] then
+			entries[entity] = nil
+			removed = removed + 1
+		end
+	end
+
+	log.message(string.format(
+		"[nulldozzer_gradients] scan: %.1f ms (find %.1f ms; %d edges, %d new or changed, %d pieces made, %d removed)",
+		clock:getTime() / 1000.0, findMicros / 1000.0, #entities, read, made, removed))
 	return pieces
+end
+
+function network_scan.profileOf(piece : Piece) : NullDozzerEdgeProfile.Profile
+	local profile = keptProfiles[piece]
+	if profile == nil then
+		if keptProfileCount >= MAX_KEPT_PROFILES then
+			keptProfiles = {}
+			keptProfileCount = 0
+		end
+		-- `network` holds the lanes' component while they are measured.
+		local lanes, network = network_scan.lanesOf(piece)
+		if lanes == nil or network == nil then
+			return EMPTY_PROFILE
+		end
+		profile = edge_profile.measure(lanes[1])
+		keptProfiles[piece] = profile
+		keptProfileCount = keptProfileCount + 1
+	end
+	return profile
 end
 
 return network_scan

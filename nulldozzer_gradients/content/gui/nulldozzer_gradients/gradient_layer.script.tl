@@ -8,7 +8,7 @@ local TerrainLayer = ug_require "::/gui/layers/layer_terrain.tl" as Recipe<Layer
 local gradient_scale = ug_require "nulldozzer_gradients::/gui/nulldozzer_gradients/gradient_scale.tl" as NullDozzerGradientScale
 local gradient_tooltip = ug_require "nulldozzer_gradients::/gui/nulldozzer_gradients/gradient_tooltip.tl" as NullDozzerGradientTooltip
 local network_scan = ug_require "nulldozzer_gradients::/gui/nulldozzer_gradients/network_scan.tl" as NullDozzerNetworkScan
-local point_grid = ug_require "nulldozzer_gradients::/gui/nulldozzer_gradients/point_grid.tl" as NullDozzerPointGrid
+local edge_profile = ug_require "nulldozzer_gradients::/gui/nulldozzer_gradients/edge_profile.tl" as NullDozzerEdgeProfile
 
 local type Piece = NullDozzerNetworkScan.Piece
 local type Strip = Builtin.Type.EdgeRenderable.Edge
@@ -42,16 +42,30 @@ local KINDS_SHOWN : {Networks : {NullDozzerNetworkScan.Kind : boolean}} = {
 -- Remembered while the game runs, so the layer opens with the last choice.
 local chosenNetworks : Networks = "rail"
 
-local GRID_CELL_SIZE <const> = 20.0
 local LEGEND_LEVELS_PER_STEP <const> = 4
 
-local record LayerState
-	piecesByEntity : {Engine.Entity : Piece}
-	grid : NullDozzerPointGrid.Grid
+-- Shift detail is built for pieces near the view's centre: within this many times
+-- the camera's distance, kept between these bounds.
+local DETAIL_RADIUS_PER_CAMERA_DISTANCE <const> = 1.5
+local MIN_DETAIL_RADIUS <const> = 300.0
+local MAX_DETAIL_RADIUS <const> = 3000.0
+
+local record PieceStrips
 	-- One colour per piece from its average gradient.
+	segment : {Strip}
+	-- One colour per 4 m stretch, shown while the detail modifier is held. Built the
+	-- first time the piece is near the view while it is held.
+	detail : {Strip}
+end
+
+-- Kept between openings of the layer. Weak keys: when the scan drops a piece, its
+-- strips go with it.
+local stripsByPiece : {Piece : PieceStrips} = setmetatable({} as {Piece : PieceStrips}, { __mode = "k" } as metatable<{Piece : PieceStrips}>)
+
+local record LayerState
+	pieces : {Piece}
+	piecesByEntity : {Engine.Entity : Piece}
 	segmentStrips : {Strip}
-	-- One colour per 4 m stretch, shown while the detail modifier is held.
-	detailStrips : {Strip}
 end
 
 -- One colour per 4 m sample, in order along the piece. Unverified: assumes the
@@ -70,9 +84,8 @@ local function runsBackwards(lane : EdgeGeometry, samples : {NullDozzerEdgeProfi
 	return distanceSquared(start, samples[#samples]) < distanceSquared(start, samples[1])
 end
 
-local function detailColors(lane : EdgeGeometry, piece : Piece) : {Vec4f}
+local function detailColors(lane : EdgeGeometry, piece : Piece, samples : {NullDozzerEdgeProfile.Sample}) : {Vec4f}
 	local scale = gradient_scale.forKind(piece.kind)
-	local samples = piece.profile.samples
 	local backwards = runsBackwards(lane, samples)
 	local colors : {Vec4f} = {}
 	for i = 1, #samples do
@@ -85,11 +98,6 @@ local function detailColors(lane : EdgeGeometry, piece : Piece) : {Vec4f}
 	return colors
 end
 
-local function segmentColors(piece : Piece) : {Vec4f}
-	local color = gradient_scale.colorFor(gradient_scale.forKind(piece.kind), piece.profile.averageGradient, STRIP_OPACITY)
-	return { color, color }
-end
-
 local function makeStrip(lane : EdgeGeometry, piece : Piece, colors : {Vec4f}) : Strip
 	local strip = builtin.type.EdgeRenderable.Edge.new(lane)
 	strip.colors = colors
@@ -99,44 +107,98 @@ local function makeStrip(lane : EdgeGeometry, piece : Piece, colors : {Vec4f}) :
 	return strip
 end
 
-local function addToGrid(grid : NullDozzerPointGrid.Grid, piece : Piece)
-	for _, sample in ipairs(piece.profile.samples) do
-		point_grid.add(grid, { x = sample.x, y = sample.y, gradient = sample.gradient, piece = piece.entity })
+-- One strip per lane: in the piece's average colour, or with detail, a colour per
+-- 4 m. Made from lanes read just now (see network_scan.lanesOf); `network` holds
+-- their component while they are used. A strip copies its lane's shape, so it can
+-- be kept. nil if the piece is gone.
+local function makeStrips(piece : Piece, detail : boolean) : {Strip}
+	local lanes, network = network_scan.lanesOf(piece)
+	if lanes == nil or network == nil then
+		return nil
+	end
+	local samples : {NullDozzerEdgeProfile.Sample} = nil
+	local segmentColors : {Vec4f} = nil
+	if detail then
+		-- Measured here rather than through network_scan.profileOf, so building the
+		-- detail for many pieces does not push out the few the tooltip keeps.
+		samples = edge_profile.measure(lanes[1]).samples
+	else
+		local color = gradient_scale.colorFor(gradient_scale.forKind(piece.kind), piece.averageGradient, STRIP_OPACITY)
+		segmentColors = { color, color }
+	end
+	local strips : {Strip} = {}
+	for i, lane in ipairs(lanes) do
+		strips[i] = makeStrip(lane, piece, samples and detailColors(lane, piece, samples) or segmentColors)
+	end
+	return strips
+end
+
+local function append(list : {Strip}, items : {Strip})
+	for _, item in ipairs(items) do
+		list[#list + 1] = item
 	end
 end
 
 local function buildLayerState(kinds : {NullDozzerNetworkScan.Kind : boolean}) : LayerState
-	local state : LayerState = { piecesByEntity = {}, grid = point_grid.new(GRID_CELL_SIZE), segmentStrips = {}, detailStrips = {} }
-	local totalClock = api.type.Clock.new()
-	local scanClock = api.type.Clock.new()
-	local pieces = network_scan.scanAll(kinds)
-	local scanMicros = scanClock:getTime()
-	local gridMicros, colorMicros, stripMicros, samples = 0.0, 0.0, 0.0, 0
+	local clock = api.type.Clock.new()
+	local pieces = network_scan.current(kinds)
+	local scanMicros = clock:getTime()
+	local state : LayerState = { pieces = pieces, piecesByEntity = {}, segmentStrips = {} }
+	local made = 0
 	for _, piece in ipairs(pieces) do
 		state.piecesByEntity[piece.entity] = piece
-		local gridClock = api.type.Clock.new()
-		addToGrid(state.grid, piece)
-		gridMicros = gridMicros + gridClock:getTime()
-		samples = samples + #piece.profile.samples
-		local colorClock = api.type.Clock.new()
-		local segment = segmentColors(piece)
-		local details : {{Vec4f}} = {}
-		for i, lane in ipairs(piece.lanes) do
-			details[i] = detailColors(lane, piece)
+		local strips = stripsByPiece[piece]
+		if strips == nil then
+			-- Not kept if the lanes could not be read, so the next opening tries again.
+			local segment = makeStrips(piece, false)
+			if segment ~= nil then
+				strips = { segment = segment }
+				stripsByPiece[piece] = strips
+				made = made + 1
+			end
 		end
-		colorMicros = colorMicros + colorClock:getTime()
-		local stripClock = api.type.Clock.new()
-		for i, lane in ipairs(piece.lanes) do
-			state.segmentStrips[#state.segmentStrips + 1] = makeStrip(lane, piece, segment)
-			state.detailStrips[#state.detailStrips + 1] = makeStrip(lane, piece, details[i])
+		if strips ~= nil then
+			append(state.segmentStrips, strips.segment)
 		end
-		stripMicros = stripMicros + stripClock:getTime()
 	end
 	log.message(string.format(
-		"[nulldozzer_gradients] built terrain gradient layer in %.1f ms (scan %.1f, grid %.1f, colours %.1f, strips %.1f; %d pieces, %d samples, %d strips)",
-		totalClock:getTime() / 1000.0, scanMicros / 1000.0, gridMicros / 1000.0, colorMicros / 1000.0, stripMicros / 1000.0,
-		#pieces, samples, #state.segmentStrips))
+		"[nulldozzer_gradients] built terrain gradient layer in %.1f ms (scan %.1f ms; %d pieces, %d new, %d strips)",
+		clock:getTime() / 1000.0, scanMicros / 1000.0, #pieces, made, #state.segmentStrips))
 	return state
+end
+
+-- The strips to show while the detail modifier is held: 4 m detail for pieces near
+-- the view's centre, the segment colour for the rest.
+local function detailStripsNearView(state : LayerState) : {Strip}
+	local clock = api.type.Clock.new()
+	local camera = api.gui.camera.getCameraData()
+	local radius = math.max(MIN_DETAIL_RADIUS, math.min(MAX_DETAIL_RADIUS, camera.z * DETAIL_RADIUS_PER_CAMERA_DISTANCE))
+	local near : {Engine.Entity : boolean} = {}
+	local center = api.type.Vec2f.new(camera.x, camera.y)
+	for _, entity in ipairs(api.engine.util.octree.findEntitiesInCircle(center, radius, api.type.ComponentType.BASE_EDGE)) do
+		near[entity] = true
+	end
+	local result : {Strip} = {}
+	local nearCount, made = 0, 0
+	for _, piece in ipairs(state.pieces) do
+		local strips = stripsByPiece[piece]
+		if strips == nil then
+			-- Its lanes could not be read when the layer was built; it is not drawn.
+		elseif near[piece.entity] then
+			nearCount = nearCount + 1
+			if strips.detail == nil then
+				strips.detail = makeStrips(piece, true)
+				made = made + 1
+			end
+			-- If the lanes could not be read, nothing is kept and it is tried next time.
+			append(result, strips.detail or strips.segment)
+		else
+			append(result, strips.segment)
+		end
+	end
+	log.message(string.format("[nulldozzer_gradients] shift detail in %.1f ms (radius %.0f m; %d pieces near, %d new)",
+		clock:getTime() / 1000.0, radius, nearCount, made))
+	return result
 end
 
 local function ColorBar(scale : NullDozzerGradientScale.Scale) : TreeNodeId
@@ -200,7 +262,7 @@ end)
 -- layer builds its action as one opaque node, so while its action function runs,
 -- builtin.ActionDescriptor and builtin.ActionTooltip are swapped for versions that
 -- add the strips and the gradient tooltip, and restored afterwards.
-local function withGradients(terrainActionFn : (function() : TreeNodeId), state : LayerState, detail : boolean) : function() : TreeNodeId
+local function withGradients(terrainActionFn : (function() : TreeNodeId), strips : {Strip}, pieces : {Engine.Entity : Piece}) : function() : TreeNodeId
 	return function() : TreeNodeId
 		local patchable = builtin as {string : any}
 		local originalDescriptor = builtin.ActionDescriptor
@@ -217,7 +279,7 @@ local function withGradients(terrainActionFn : (function() : TreeNodeId), state 
 				children[i] = child
 			end
 			-- Only one EdgeRenderable is allowed per ActionDescriptor, so swap the list.
-			children[#children + 1] = builtin.EdgeRenderable{ edges = detail and state.detailStrips or state.segmentStrips, ignoreDepth = true }
+			children[#children + 1] = builtin.EdgeRenderable{ edges = strips, ignoreDepth = true }
 			param.children = children
 			return originalDescriptor(param)
 		end
@@ -232,7 +294,7 @@ local function withGradients(terrainActionFn : (function() : TreeNodeId), state 
 				param = {
 					terrainRecipe = param.recipe,
 					terrainParam = param.param,
-					gradientParam = { hoveredRef = hoveredRef, grid = state.grid, pieces = state.piecesByEntity },
+					gradientParam = { hoveredRef = hoveredRef, pieces = pieces },
 				},
 			}
 		end
@@ -319,11 +381,26 @@ local TerrainLayerWithGradients = react.RegisterRecipe("NullDozzerTerrainLayerWi
 	local detailState = engine_react_util.useStepState(gradient_tooltip.isDetailHeld)
 	local detail = detailState:old() == true
 
+	-- Shift detail follows the view: worked out again each time Shift is pressed.
+	local detailStripsRef : ReactRefT<{Strip}> = react.useRef()
+	local detailStateRef : ReactRefT<LayerState> = react.useRef()
+	local strips : {Strip} = nil
+	if layerState ~= nil and detail then
+		if detailStripsRef:get() == nil or detailStateRef:get() ~= layerState then
+			detailStripsRef:set(detailStripsNearView(layerState))
+			detailStateRef:set(layerState)
+		end
+		strips = detailStripsRef:get()
+	elseif layerState ~= nil then
+		detailStripsRef:set(nil)
+		strips = layerState.segmentStrips
+	end
+
 	local function wrap(actionFn : (function() : TreeNodeId)) : function() : TreeNodeId
 		if layerState == nil then
 			return actionFn
 		end
-		return withGradients(actionFn, layerState, detail)
+		return withGradients(actionFn, strips, layerState.piecesByEntity)
 	end
 
 	-- The terrain layer sets its action while it renders. Keep the latest one, so a

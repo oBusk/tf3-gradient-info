@@ -3,7 +3,6 @@ require "api_def"
 require "content_def"
 
 -- The mod's own module definitions. Dependencies first: later files use types from earlier ones.
-require "point_grid"
 require "edge_profile"
 require "network_scan"
 require "gradient_scale"
