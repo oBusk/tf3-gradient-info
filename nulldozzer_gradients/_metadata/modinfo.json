@@ -1,7 +1,7 @@
 {
-    "name": "Gradient Data Layer",
-    "summary": "Adds a data layer that colors tracks by gradient, so steep sections are easy to spot.",
-    "description": "Adds a data layer that colors built tracks by their gradient, making it easy to find sections that are too steep for your trains and may need to be replanned.",
+    "name": "Gradient Info",
+    "summary": "See the gradient, grade or slope of your tracks: a colored Terrain data layer, and the steepest climb of every rail line.",
+    "description": "Find the steep spots in your network before your trains do. Gradient Info shows the gradient (grade, slope) of tracks and roads, and how much each rail line has to climb.\n\nTerrain data layer: colors track segments by their average grade, from green (flat) through yellow and red to black (too steep). A dropdown chooses None, Rail or Rail and road. Hold Shift to see the slope every 4 m, and hover a track to read its exact gradient, or a bridge's or tunnel's average and steepest grade.\n\nLine and train windows: a Line info card with the round trip length, number of stops, average speed and the steepest climb. Hover the climb to see which vehicle store Performance rating a train needs to keep full speed uphill, and in the train window, how the current train compares.\n\nLine manager: the length, steepest climb and required Performance of each rail line, below its statistics.\n\nInterface only: safe to add to or remove from an existing save.",
     "authors": [
         {
             "name": "nullDozzer",
