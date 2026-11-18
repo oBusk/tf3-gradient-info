@@ -1,4 +1,4 @@
--- Adds a "Steepest climb" cell to the line manager's statistics, on a row below
+-- Adds "Length", "Steepest climb" and "Needs Performance" cells to the line manager's statistics, on a row below
 -- Capacity, Utilization, Frequency, Rate and Balance, for rail lines.
 --
 -- The row is built inside the base game's LineStatisticDetails recipe, which is
@@ -18,10 +18,11 @@ local line_react_util = ug_require "::/gui/line_vehicle_mgmt/line_react_util.tl"
 local line_climb = ug_require "nulldozzer_gradients::/gui/nulldozzer_gradients/line_climb.tl" as NullDozzerLineClimb
 local line_route = ug_require "nulldozzer_gradients::/gui/nulldozzer_gradients/line_route.tl" as NullDozzerLineRoute
 local store_performance = ug_require "nulldozzer_gradients::/gui/nulldozzer_gradients/store_performance.tl" as NullDozzerStorePerformance
+local line_info_card = ug_require "nulldozzer_gradients::/gui/nulldozzer_gradients/line_info_card.tl" as NullDozzerLineInfoCard
 
 local STATISTICS_RECIPE <const> = "LineStatisticDetails"
 local ROW_CLASS <const> = "statistics-details"
-local TOOLTIP <const> = "Steepest climb on the line over its shortest platform's length, "
+local CLIMB_TOOLTIP <const> = "Steepest climb on the line over its shortest platform's length, "
 	.. "and the vehicle store Performance rating a train needs to hold full speed on it."
 
 -- Line shown by the LineStatisticDetails render in progress.
@@ -33,9 +34,9 @@ local function isRenderingStatistics() : boolean
 end
 
 -- A cell styled like the base game's statistics cells: a title above a value.
-local function DetailsCell(title : string, value : string, class : string) : TreeNodeId
+local function DetailsCell(title : string, value : string, class : string, tooltip : string) : TreeNodeId
 	return builtin.Component{
-		meta = { class = "details, " .. class, tooltip = TOOLTIP },
+		meta = { class = "details, " .. class, tooltip = tooltip },
 		layout = builtin.BoxLayout{
 			orientation = builtin.type.Orientation.Vertical,
 			children = {
@@ -61,6 +62,13 @@ local ClimbCell = react.RegisterRecipe("NullDozzerLineManagerClimb", function(li
 
 	local climbText = "Unknown (no route found)"
 	local performanceText = "-"
+	local lengthText = "-"
+	local lengthTooltip = "Round trip length; unknown as no route was found."
+	if info is NullDozzerLineClimb.LineInfo then
+		local length = line_info_card.lengthCell(info)
+		lengthText = length.label
+		lengthTooltip = length.tooltip
+	end
 	if info is NullDozzerLineClimb.LineInfo and info.climb ~= nil then
 		local climb = info.climb
 		climbText = api.util.toStringPercentPrecision(climb.gradient, 1) .. " over " .. api.util.formatLength(climb.window)
@@ -71,9 +79,11 @@ local ClimbCell = react.RegisterRecipe("NullDozzerLineManagerClimb", function(li
 	return builtin.BoxLayout{
 		orientation = builtin.type.Orientation.Horizontal,
 		children = {
-			DetailsCell("Steepest climb", climbText, "nulldozzer-climb"),
+			DetailsCell("Length", lengthText, "nulldozzer-length", lengthTooltip),
 			builtin.Component{ meta = { class = "details-spacer" } },
-			DetailsCell("Needs Performance", performanceText, "nulldozzer-performance"),
+			DetailsCell("Steepest climb", climbText, "nulldozzer-climb", CLIMB_TOOLTIP),
+			builtin.Component{ meta = { class = "details-spacer" } },
+			DetailsCell("Needs Performance", performanceText, "nulldozzer-performance", CLIMB_TOOLTIP),
 		},
 	}
 end)

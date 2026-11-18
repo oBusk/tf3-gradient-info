@@ -18,6 +18,8 @@ global record NullDozzerLineInfoCard
 	registerSummary : function(name : string, summaryFor : function(entity : Engine.Entity) : Summary) : Recipe<Engine.Entity>
 	--- Round trip length, stops and average speed, for both windows.
 	routeCells : function(lineEntity : Engine.Entity, info : NullDozzerLineClimb.LineInfo) : {Cell}
+	--- Round trip length; "+" and "at least" when some legs were not found.
+	lengthCell : function(info : NullDozzerLineClimb.LineInfo) : Cell
 	--- The steepest climb, with the Performance rating it requires; each of
 	--- `details` is added to the tooltip on a line of its own.
 	slopeCell : function(climb : NullDozzerClimbWindow.Climb, details? : {string}) : Cell

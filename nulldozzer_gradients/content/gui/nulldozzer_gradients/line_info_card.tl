@@ -53,33 +53,31 @@ local function speedCell(lineEntity : Engine.Entity, length : number) : NullDozz
 	}
 end
 
-function line_info_card.routeCells(lineEntity : Engine.Entity, info : NullDozzerLineClimb.LineInfo) : {NullDozzerLineInfoCard.Cell}
+function line_info_card.lengthCell(info : NullDozzerLineClimb.LineInfo) : NullDozzerLineInfoCard.Cell
 	local length = api.util.formatLength(info.length)
+	if not info.complete then
+		-- Some legs were not found, so the length falls short.
+		return {
+			icon = line_info_card.ICON_LENGTH,
+			label = length .. "+",
+			tooltip = "Round trip: at least " .. length .. " (the route between some stops was not found)",
+		}
+	end
+	return { icon = line_info_card.ICON_LENGTH, label = length, tooltip = "Round trip: " .. length }
+end
+
+function line_info_card.routeCells(lineEntity : Engine.Entity, info : NullDozzerLineClimb.LineInfo) : {NullDozzerLineInfoCard.Cell}
 	local stops : NullDozzerLineInfoCard.Cell = {
 		icon = line_info_card.ICON_STOPS,
 		label = tostring(info.stops),
 		tooltip = "Stops: " .. tostring(info.stops),
 	}
 	if not info.complete then
-		-- Some legs were not found, so the length and anything from it fall short.
-		return {
-			{
-				icon = line_info_card.ICON_LENGTH,
-				label = length .. "+",
-				tooltip = "Round trip: at least " .. length .. " (the route between some stops was not found)",
-			},
-			stops,
-		}
+		-- Some legs were not found, so anything from the length falls short.
+		return { line_info_card.lengthCell(info), stops }
 	end
 	stops.tooltip = stops.tooltip .. "\nAverage distance between stops: " .. api.util.formatLength(info.length / info.stops)
-	local cells : {NullDozzerLineInfoCard.Cell} = {
-		{
-			icon = line_info_card.ICON_LENGTH,
-			label = length,
-			tooltip = "Round trip: " .. length,
-		},
-		stops,
-	}
+	local cells : {NullDozzerLineInfoCard.Cell} = { line_info_card.lengthCell(info), stops }
 	local ok, speed = pcall(speedCell, lineEntity, info.length)
 	if ok and speed ~= nil then
 		cells[#cells + 1] = speed

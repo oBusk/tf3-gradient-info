@@ -2,8 +2,8 @@ local ssu = require "::/gui/main/stylesheetutil.lua"
 
 -- The base game sizes the five statistics cells as shares of a 456 px budget, with
 -- 2 px spacers between them (gui/line_vehicle_mgmt/line_vehicle_mgmt.css.lua).
--- The row below lines up with them: the climb cell spans Capacity, Utilization and
--- Frequency, the performance cell spans Rate and Balance.
+-- The row below lines up with them: the length cell sits under Capacity, the climb
+-- cell spans Utilization and Frequency, the performance cell spans Rate and Balance.
 local BUDGET = 456
 local SPACER = 2
 -- Each cell's padding, left plus right; a cell is drawn this much wider than its size.
@@ -21,8 +21,13 @@ function data()
 	local a = ssu.makeAdder(result)
 
 	-- The top margin is the gap to the row above, as wide as the gaps between cells.
+	a("R::LineStatisticDetails R::Component!details!nulldozzer-length", {
+		size = { spanSize(CAPACITY, 1), -1 },
+		margin = { SPACER, 0, 0, 0 },
+	})
+
 	a("R::LineStatisticDetails R::Component!details!nulldozzer-climb", {
-		size = { spanSize(CAPACITY + UTILIZATION + FREQUENCY, 3), -1 },
+		size = { spanSize(UTILIZATION + FREQUENCY, 2), -1 },
 		margin = { SPACER, 0, 0, 0 },
 	})
 
